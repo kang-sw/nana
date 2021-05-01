@@ -1,7 +1,7 @@
 /*
  *	Implementation of Notifier
  *	Nana C++ Library(http://www.nanapro.org)
- *	Copyright(C) 2003-2019 Jinhao(cnjinhao@hotmail.com)
+ *	Copyright(C) 2003-2020 Jinhao(cnjinhao@hotmail.com)
  *
  *	Distributed under the Boost Software License, Version 1.0.
  *	(See accompanying file LICENSE_1_0.txt or copy at
@@ -37,6 +37,7 @@ namespace nana
 
 	struct notifier::implement
 	{
+		using animation_map = ::std::unordered_map<::std::string, ::std::vector<paint::image>>;
 		nana::timer	ani_timer;
 		native_window_type	native_handle;
 		window				handle;
@@ -47,7 +48,8 @@ namespace nana
 		std::size_t	play_index;
 
 		paint::image icon;
-		::std::vector<paint::image> icons;
+		animation_map animations;
+		::std::vector<paint::image>* current_animation{ nullptr };
 
 		void set_icon(const paint::image& ico)
 		{
@@ -256,10 +258,13 @@ namespace nana
 		impl_->ani_timer.elapse([this]
 		{
 #if defined(NANA_WINDOWS)
-			if (impl_->play_index >= impl_->icons.size())
+			if (!impl_->current_animation)
+				return;
+
+			if (impl_->play_index >= impl_->current_animation->size())
 				impl_->play_index = 0;
 
-			auto ico = impl_->icons[impl_->play_index++];
+			auto ico = (*impl_->current_animation)[impl_->play_index++];
 			impl_->set_icon(ico);
 #else
 			//eliminates warnings in clang
@@ -318,49 +323,120 @@ namespace nana
 #endif
 	}
 
-	void notifier::icon(const std::string& icon_file)
+	void notifier::icon(const std::filesystem::path& file)
 	{
 #if defined(NANA_WINDOWS)
-		paint::image image_ico{ icon_file };
+		paint::image image_ico{ file };
 		auto icon_handle = paint::image_accessor::icon(image_ico);
 		if (icon_handle)
 		{
-			impl_->ani_timer.stop();
-			impl_->play_index = 0;
+			if (impl_->current_animation)
+			{
+				stop_animation(false);
+				impl_->play_index = 0;
+				impl_->current_animation = nullptr;
+			}
 			impl_->set_icon(image_ico);
 			impl_->icon = image_ico;
 		}
 #else
-		static_cast<void>(icon_file);	//eliminate unused parameter warning
+		static_cast<void>(file);	//eliminate unused parameter warning
 #endif
 	}
 
-	void notifier::insert_icon(const std::string& icon_file)
+	void notifier::insert_icon(const std::filesystem::path& icon_file)
+	{
+		insert_icon("notifier_default", icon_file);
+	}
+
+	void notifier::insert_icon(const ::std::string& animation_tag, const ::std::filesystem::path& file)
 	{
 #if defined(NANA_WINDOWS)
-		paint::image image_ico{ icon_file };
+		paint::image image_ico{ file };
 		auto icon_handle = paint::image_accessor::icon(image_ico);
 		if (icon_handle)
-			impl_->icons.emplace_back(static_cast<paint::image&&>(image_ico));
+		{
+			auto& animation_frames = impl_->animations[animation_tag];
+			animation_frames.emplace_back(std::move(image_ico));
+		}
 #else
-		static_cast<void>(icon_file);	//eliminate unused parameter warning
+		static_cast<void>(animation_tag);	//eliminate unused parameter warning
+		static_cast<void>(file);	//eliminate unused parameter warning
 #endif
 	}
 
 	void notifier::period(std::chrono::milliseconds ms)
 	{
-#if defined(NANA_WINDOWS)
-		if (ms.count() && impl_->icons.size())
-		{
-			auto frame_ms = (std::max)(ms.count() / static_cast<long long>(impl_->icons.size()), static_cast<long long>(16));
+		period("notifier_default", ms);
+	}
 
-			impl_->ani_timer.interval(std::chrono::milliseconds{frame_ms});
-			impl_->ani_timer.start();
+	void notifier::period(const ::std::string& animation_tag, const std::chrono::milliseconds ms)
+	{
+#if defined(NANA_WINDOWS)
+		if (ms.count() == 0)
+			return;
+
+		const bool animation_not_found = (impl_->animations.find(animation_tag) == impl_->animations.end());
+		if (animation_not_found)
+			return;
+
+		const bool empty_frames = impl_->animations[animation_tag].empty();
+		if (empty_frames)
+			return;
+
+		if (impl_->current_animation)
+		{
+			stop_animation(false);
+			impl_->play_index = 0;
+			impl_->current_animation = nullptr;
 		}
-		else
-			impl_->ani_timer.stop();
+
+		auto& animation_frames = impl_->animations[animation_tag];
+		impl_->current_animation = &animation_frames;
+		const auto frame_ms = (std::max)(ms.count() / static_cast<long long>(animation_frames.size()), static_cast<long long>(16));
+		impl_->ani_timer.interval(std::chrono::milliseconds{ frame_ms });
+		impl_->ani_timer.start();
 #else
+		static_cast<void>(animation_tag);	//to eliminate unused parameter compiler warning.
 		static_cast<void>(ms); //to eliminate unused parameter compiler warning.
+#endif
+	}
+
+	void notifier::resume_animation()
+	{
+#if defined(NANA_WINDOWS)
+		const bool halted_animation_not_found = (impl_->current_animation == nullptr || impl_->ani_timer.started() == true);
+		if (halted_animation_not_found)
+			return;
+
+		impl_->ani_timer.start();
+#endif
+	}
+
+	void notifier::stop_animation(const bool complete_stop)
+	{
+#if defined(NANA_WINDOWS)
+		const bool animation_not_playing = (impl_->current_animation == nullptr || impl_->ani_timer.started() == false);
+		if (animation_not_playing)
+			return;
+
+		impl_->ani_timer.stop();
+		if (complete_stop)
+		{
+			impl_->play_index = 0;
+			if (impl_->icon_added)
+			{
+				impl_->set_icon(impl_->icon);
+			}
+			else
+			{
+				const auto& first_frame = (*impl_->current_animation)[0];
+				impl_->set_icon(first_frame);
+			}
+			impl_->current_animation = nullptr;
+		}
+#else
+		static_cast<void>(complete_stop);	//to eliminate unused parameter compiler warning.
 #endif
 	}
 

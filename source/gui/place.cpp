@@ -23,7 +23,6 @@
 #include <cstdlib>	//std::abs
 #include <cstring>	//std::memset
 #include <cctype>	//std::isalpha/std::isalnum
-#include <iostream>
 
 #include <nana/push_ignore_diagnostic>
 #include <nana/deploy.hpp>
@@ -408,11 +407,29 @@ namespace nana
 				return sp;
 			}
 
+			//Parses unit. It returns unit string and modifies the sp to the next character of unit string if it parses successfully.
+			std::string _m_unit(const char*& sp) noexcept
+			{
+				auto const start = sp;
+				sp = _m_eat_whitespace(sp);
+				auto begin = sp;
+				while (std::isalpha(*sp))
+					++sp;
+				
+				if (sp > begin)
+				{
+					std::string_view sv{ begin, static_cast<std::string_view::size_type>(sp - begin) };
+					if ("px" == sv || "em" == sv)
+						return { sv.data(), sv.size() };
+				}
+
+				sp = start;
+				return {};
+			}
+
 			std::size_t _m_number(const char* sp, bool negative) noexcept
 			{
-				/// \todo use std::from_char<int>() etc.
-
-				const char* allstart = sp;
+				const char* const allstart = sp;
 				sp = _m_eat_whitespace(sp);
 
 				number_.assign(0);
@@ -420,7 +437,6 @@ namespace nana
 
 				bool gotcha = false;
 				int integer = 0;
-				double real = 0;
 				//read the integral part.
 				const char* istart = sp;
 				while ('0' <= *sp && *sp <= '9')
@@ -428,10 +444,10 @@ namespace nana
 					integer = integer * 10 + (*sp - '0');
 					++sp;
 				}
-				const char* iend = sp;
 
 				if ('.' == *sp)
 				{
+					double real = 0;
 					double div = 1;
 					const char* rstart = ++sp;
 					while ('0' <= *sp && *sp <= '9')
@@ -447,7 +463,7 @@ namespace nana
 						gotcha = true;
 					}
 				}
-				else if (istart != iend)
+				else if (istart != sp)
 				{
 					number_.assign(negative ? -integer : integer);
 					gotcha = true;
@@ -458,35 +474,12 @@ namespace nana
 					sp = _m_eat_whitespace(sp);
 					if ('%' != *sp)
 					{
-						//Try to parse the unit
-						auto start_p = sp_;
-						sp_ = sp;
-
-						//Try-catch here, the next character may not be allowed for read().
-						//When parsing an array, a number is followed by a comma, e.g. "20,".
-						//Then trying to parse the unit will throw an exception from read(), because
-						//comma is not allowed for read().
-						try
-						{
-							if (token::identifier == this->read())
-							{
-								if (this->idstr() == "px")
-								{
-									number_.unit(number_t::units::px);
-									sp = sp_;
-								}
-								else if (this->idstr() == "em")
-								{
-									number_.unit(number_t::units::em);
-									sp = sp_;
-								}
-							}
-						}
-						catch (...)
-						{
-						}
-
-						sp_ = start_p;
+						//Try to parse unit
+						auto unit = _m_unit(sp);
+						if ("px" == unit)
+							number_.unit(number_t::units::px);
+						else if ("em" == unit)
+							number_.unit(number_t::units::em);
 
 						return sp - allstart;
 					}
@@ -1205,8 +1198,6 @@ namespace nana
 
 		void collocate(window wd) override
 		{
-			std::cout << "\n Begin div_arrange child collocate: " << api::window_caption(wd) << std::endl;
-
 			const place_parts::display_metrics dm{ wd };
 			const bool vert = (kind::arrange != kind_of_division);
 
@@ -1221,10 +1212,9 @@ namespace nana
 			double position = area.x();
 			std::vector<division*> delay_collocates;
 			double precise_px = 0;
-			int ch =0;
+
 			for (auto& child_ptr : children)					/// First collocate child div's !!!
 			{
-                std::cout << "\n Begin child: " << ++ch << " of " << children.size() << std::endl;
                 auto child = child_ptr.get();
 				if(!child->display)	//Ignore the division if the corresponding field is not displayed.
 					continue;
@@ -1250,7 +1240,7 @@ namespace nana
 				}
 				else
 				{
-					// the child weight is a fixed value, therefore, the value passed to 1st get_value parameter is useless.
+					// the child weight is a fixed value, therefore, the 1st parameter of get_value is useless.
 					child_px = static_cast<unsigned>(child->weight.get_value(0, dm));
 				}
 
@@ -1268,9 +1258,6 @@ namespace nana
 					delay_collocates.emplace_back(child);
 				else
 					child->collocate(wd);	/// The child div have full position. Now we can collocate  inside it the child fields and child-div.
-
-				std::cout << "\n End child: " << ch << " of " << children.size() << std::endl;
-
             }
 
 			for (auto child : delay_collocates)
@@ -1325,9 +1312,6 @@ namespace nana
 				for (auto & fsn : field->fastened)
 					api::move_window(fsn.handle, area_margined);
 			}
-
-			std::cout << "\n End child collocate: " << api::window_caption(wd)<< std::endl;
-
         }
 	private:
 		static std::pair<unsigned, std::size_t> _m_calc_fa(const place_parts::number_t& number, unsigned area_px, double& precise_px)
@@ -1514,7 +1498,6 @@ namespace nana
 
 			while ((rest_px > 0) && blocks)
 			{
-				std::cout << "-";
 				auto lowest = _m_find_lowest_revised_division(revises, level_px);
 
 				double fill_px = 0;
@@ -2484,10 +2467,9 @@ namespace nana
 
 			bool is_first = true;
 			bool prev_attr = false;
-			int ch = 0;
+
 			for (auto & child : children)
 			{
-				std::cout << "\n Begin child: " << ++ch << " of " << children.size() << std::endl;
 				if (!child->display)
 					continue;
 
@@ -2505,7 +2487,6 @@ namespace nana
 					++horz_count;
 
 				prev_attr = is_vert;
-				std::cout << "\n End child: " << ch << " of " << children.size() << std::endl;
 			}
 			if (0 == vert_count)
 				vert_count = 1;
@@ -2712,22 +2693,16 @@ namespace nana
 	{
 		if (root_division && window_handle)
 		{
-			std::cout << "\n Begin place impl collocate: " << api::window_caption(window_handle) << std::endl;
-
 			root_division->field_area.dimension(api::window_size(window_handle));
 
 			if (root_division->field_area.empty())
 				return;
 
 			root_division->calc_weight_floor(window_handle);
-
 			root_division->collocate(window_handle);
-			int fc = 0;
 
 			for (auto & field : fields)
 			{
-				std::cout << "\n Begin place impl collocate field #" << ++fc << " of " << fields.size() << "named: " << field.first << std::endl;
-
 				bool is_show = false;
 				if (field.second->attached && field.second->attached->visible && field.second->attached->display)
 				{
@@ -2735,7 +2710,6 @@ namespace nana
 					auto div = field.second->attached->div_owner;
 					while (div)
 					{
-					    std::cout<<"Field's div owner: " << div->name << std::endl;
 						if (!div->visible || !div->display)
 						{
 							is_show = false;
@@ -2749,8 +2723,6 @@ namespace nana
 				//This is a feature that allows tabbar panels to be fastened to a same field, the collocate()
 				//shouldn't break the visibility of panels that are maintained by tabbar.
 				field.second->visible(is_show, false);
-				std::cout << "\n End collocate place impl field #" << fc << " of " << fields.size() << "named: " << field.first << std::endl;
-
 			}
 		}
 	}

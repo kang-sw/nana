@@ -188,6 +188,9 @@ namespace nana
 
 			void clear()
 			{
+				if (editor_)
+					editor_->text({}, false);
+
 				items_.clear();
 				module_.items.clear();
 				module_.index = nana::npos;
@@ -199,33 +202,34 @@ namespace nana
 				{
 					editor_->editable(enb, false);
 					editor_->show_caret(enb);
-					if (!enb)
+
+					editor_->customized_renderers().background = [this, enb](graph_reference graph, const ::nana::rectangle&, const ::nana::color&)
 					{
-						editor_->customized_renderers().background = [this](graph_reference graph, const ::nana::rectangle&, const ::nana::color&)
+						auto clr_from = this->widget_ptr()->bgcolor();
+						auto clr_to = clr_from.blend(colors::white, .1);
+
+						int pare_off_px = 1;
+						if (element_state::pressed == state_.button_state)
 						{
-							auto clr_from = colors::button_face_shadow_start;
-							auto clr_to = colors::button_face_shadow_end;
+							pare_off_px = 2;
+							std::swap(clr_from, clr_to);
+						}
 
-							int pare_off_px = 1;
-							if (element_state::pressed == state_.button_state)
-							{
-								pare_off_px = 2;
-								std::swap(clr_from, clr_to);
-							}
-
+						if(enb)
+							graph.rectangle(::nana::rectangle(::nana::size{image_pixels_+5, graph.height()}).pare_off(pare_off_px), 
+								true, this->widget_ptr()->bgcolor());
+						else
 							graph.gradual_rectangle(::nana::rectangle(graph.size()).pare_off(pare_off_px), clr_from, clr_to, true);
-							if (api::is_transparent_background(this->widget_ptr()->handle()))
+
+						if (api::is_transparent_background(this->widget_ptr()->handle()))
+						{
+							paint::graphics trns_graph{ graph.size() };
+							if (api::dev::copy_transparent_background(this->widget_ptr()->handle(), trns_graph))
 							{
-								paint::graphics trns_graph{ graph.size() };
-								if (api::dev::copy_transparent_background(this->widget_ptr()->handle(), trns_graph))
-								{
-									graph.blend(rectangle{ trns_graph.size() }, trns_graph, {}, 0.5);
-								}
+								graph.blend(rectangle{ trns_graph.size() }, trns_graph, {}, 0.5);
 							}
-						};
-					}
-					else
-						editor_->customized_renderers().background = nullptr;
+						}
+					};
 
 					editor_->enable_background(enb);
 					editor_->enable_background_counterpart(!enb);
@@ -308,6 +312,29 @@ namespace nana
 							api::refresh_window(*widget_);
 						}
 					});
+				}
+			}
+
+			void try_select(std::wstring text)
+			{
+				if (!state_.lister)
+					return;
+
+				std::transform(text.cbegin(), text.cend(), text.begin(), ::tolower);
+				
+				for (std::size_t i = 0; i < state_.lister->length(); ++i)
+				{
+					auto item_txt = nana::to_wstring(state_.lister->text(i).value());
+					if (text.size() > item_txt.size())
+						continue;
+
+					std::transform(item_txt.cbegin(), item_txt.cend(), item_txt.begin(), ::tolower);
+
+					if (item_txt.npos != item_txt.find(text))
+					{
+						state_.lister->select(i);
+						break;
+					}
 				}
 			}
 
@@ -565,7 +592,7 @@ namespace nana
 					}
 				}
 
-				nana::point pos((image_pixels_ - imgsz.width) / 2 + 2, (vpix - imgsz.height) / 2 + 2);
+				nana::point pos((image_pixels_ - imgsz.width) / 2 + 2, (widget_ptr()->size().height - imgsz.height) / 2);
 				img.stretch(::nana::rectangle{ img.size() }, *graph_, nana::rectangle(pos, imgsz));
 			}
 		private:
@@ -781,6 +808,13 @@ namespace nana
 		void trigger::key_char(graph_reference, const arg_keyboard& arg)
 		{
 			drawer_->editor()->respond_char(arg);
+			
+			if (drawer_->has_lister() && drawer_->editable())
+			{
+				//Select the item when the combox is editable and dropdown list is shown.
+				auto text = drawer_->editor()->text();
+				drawer_->try_select(text);
+			}
 			if (drawer_->editor()->try_refresh())
 				api::dev::lazy_refresh();
 		}

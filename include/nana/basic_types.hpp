@@ -1,7 +1,7 @@
 /**
  *	Basic Types definition
  *	Nana C++ Library(http://www.nanapro.org)
- *	Copyright(C) 2003-2018 Jinhao(cnjinhao@hotmail.com)
+ *	Copyright(C) 2003-2021 Jinhao(cnjinhao@hotmail.com)
  *
  *	Distributed under the Boost Software License, Version 1.0. 
  *	(See accompanying file LICENSE_1_0.txt or copy at 
@@ -275,11 +275,13 @@ namespace nana
 		yellow	= 0xFFFF00,
 		yellow_green = 0x9acd32,
 
+		dark_dark_grey = 0x404040,
+
 		//temporary definitions, these will be replaced by color schema
 		button_face_shadow_start = 0xF5F4F2,
 		button_face_shadow_end = 0xD5D2CA,
 		button_face = 0xD4D0C8 , //,light_cyan
-		dark_border = 0x404040,
+		dark_border = dark_dark_grey,
 		gray_border = 0x808080,
 		highlight = 0x1CC4F7
 	};
@@ -413,6 +415,36 @@ namespace nana
 			y += other.y;
 			return *this;
 		}
+
+		basic_point& operator++() noexcept
+		{
+			++x;
+			++y;
+			return *this;
+		}
+
+		basic_point operator++(int) noexcept
+		{
+			auto ret = *this;
+			++x;
+			++y;
+			return ret;
+		}
+
+		basic_point& operator--() noexcept
+		{
+			--x;
+			--y;
+			return *this;
+		}
+
+		basic_point operator--(int) noexcept
+		{
+			auto ret = *this;
+			--x;
+			--y;
+			return ret;
+		}
 	};
 
 	using point = basic_point<int>;
@@ -431,6 +463,12 @@ namespace nana
 		bool operator==(const size& rhs) const;
 		bool operator!=(const size& rhs) const;
 		size operator+(const size&) const;
+		size operator-(const size&) const;
+		size operator+(value_type) const;
+		size operator-(value_type) const;
+		size operator/(value_type) const;
+		size operator*(value_type) const;
+		friend size operator*(value_type, const size&);
 
 		value_type width;
 		value_type height;
@@ -458,14 +496,14 @@ namespace nana
 		 * @param pixels The number of pixels to be pared. If the number that multiples pixels twice is larger than width/height, the width/height will be zero. If the pixels is a negative number, the width/height is add the number that multiple pixels twice.
 		 * @return The reference of *this.
 		 */
-		rectangle& pare_off(int pixels);
+		rectangle& pare_off(int pixels) noexcept;
 
 		int right() const noexcept;
 		int bottom() const noexcept;
-		bool is_hit(int x, int y) const;
-		bool is_hit(const point& pos) const;
-		bool empty() const;		///< true if width * height == 0.
-		rectangle& shift();	///< Swap position x and y, size width and height.
+		bool is_hit(int x, int y) const noexcept;
+		bool is_hit(const point& pos) const noexcept;
+		bool empty() const noexcept;		///< true if width * height == 0.
+		rectangle& shift() noexcept;	///< Swap position x and y, size width and height.
 
 		int x;
 		int y;
